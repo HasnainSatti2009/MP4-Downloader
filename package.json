@@ -1,0 +1,19 @@
+{
+  "name": "jaduloader",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static Jaduloader frontend with all-channel search and rights-confirmed media processing backend",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "multer": "^2.4.0"
+  }
+}

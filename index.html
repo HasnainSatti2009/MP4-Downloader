@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111311">
+  <meta name="description" content="Search YouTube videos from all channels, play them, and prepare MP3 or MP4 downloads for media you are authorized to use.">
+  <meta property="og:title" content="Jaduloader — Search, Play & Convert">
+  <meta property="og:description" content="Search YouTube, play a preview, and convert authorized media to MP3 or MP4.">
+  <title>Jaduloader — Search, Play & Convert</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='18' fill='%23111311'/%3E%3Cpath d='M32 10v28m-11-11 11 11 11-11M14 42v9a4 4 0 0 0 4 4h28a4 4 0 0 0 4-4v-9' fill='none' stroke='%23c4f36b' stroke-width='5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="styles.css?v=6">
+  <script src="config.js" defer></script>
+  <script src="app.js?v=6" defer></script>
+</head>
+<body>
+<header class="wrap head">
+  <a class="brand" href="#top" aria-label="Jaduloader home"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 16v4h14v-4"/></svg></span>JaduLoader</a>
+  <nav class="nav" aria-label="Main navigation"><a href="#history" data-i18n="nav_history">History</a><a href="#convert" data-i18n="nav_convert">Convert file</a><a href="#faq" data-i18n="nav_faq">FAQ</a></nav>
+  <div class="head-tools">
+    <label class="sr-only" for="langSelect" data-i18n="lang_label">Language</label>
+    <select id="langSelect" class="lang-select"></select>
+    <span class="chip" id="apiState"><i></i><span data-i18n="checking">Checking backend…</span></span>
+  </div>
+</header>
+<main id="top" class="wrap">
+  <section class="hero">
+    <div class="kicker" data-i18n="kicker">YOUR MEDIA, IN ONE PLACE</div>
+    <h1><span data-i18n="h1a">Search it.</span><br><span class="accent" data-i18n="h1b">Play it. Convert it.</span></h1>
+    <p class="intro" data-i18n="intro">Search videos from all YouTube channels, preview what you find, and prepare MP3 or MP4 files only when you have permission to download them.</p>
+    <div class="panel">
+      <form id="searchForm" class="search-form" novalidate>
+        <label class="sr-only" for="query" data-i18n="search_label">Search YouTube or paste a video URL</label>
+        <div class="field-wrap">
+          <input id="query" class="field" type="search" maxlength="160" placeholder="Search YouTube or paste a video link…" data-i18n-placeholder="placeholder" required
+                 autocomplete="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" dir="auto"
+                 role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="suggestList">
+          <ul id="suggestList" class="suggest" role="listbox" data-i18n-attr="aria-label:suggestions" aria-label="Search suggestions" hidden></ul>
+          <button id="clearSearch" hidden class="icon-button" type="button" aria-label="Clear search" title="Clear search" data-i18n-attr="aria-label:clear,title:clear"><svg viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12"/></svg></button>
+        </div>
+        <button id="copySearch" class="icon-button" type="button" aria-label="Copy search text or URL" title="Copy text or URL" data-i18n-attr="aria-label:copy,title:copy"><svg viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg></button>
+        <button id="searchBtn" class="btn btn-primary" type="submit"><span data-i18n="search_btn">Search videos</span><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"/><path d="m16 16 5 5"/></svg></button>
+      </form>
+      <p class="hint" data-i18n="hint">Search results may come from any channel. A fresh YouTube Data API key is required on the backend for search.</p>
+      <div id="searchStatus" class="status" role="status" aria-live="polite"></div>
+    </div>
+    <div class="trust-row"><span><b>01</b><span data-i18n="step1">Search</span></span><span><b>02</b><span data-i18n="step2">Play</span></span><span><b>03</b><span data-i18n="step3">Choose MP3 or MP4</span></span></div>
+  </section>
+
+  <section id="resultsSection" class="results-section" aria-label="YouTube search results" hidden>
+    <div class="results-heading"><div><h2 data-i18n="results_title">Video results</h2><p id="resultsMeta" class="muted"></p></div><span class="results-badge" data-i18n="badge">ALL CHANNELS</span></div>
+    <div id="results" class="search-results"></div>
+    <div class="disclaimer"><strong data-i18n="disclaimer_b">Download responsibly:</strong> <span data-i18n="disclaimer">MP3/MP4 processing is available across search results only after you confirm that you own the video or have permission to download it. Platform restrictions still apply; the service does not use cookies or bypass sign-in challenges.</span></div>
+  </section>
+
+  <section id="history" class="section history-section">
+    <div class="section-heading"><div><h2 data-i18n="history_title">Recent downloads</h2><p class="muted" data-i18n="history_sub">Stored only in this browser. Clear it any time.</p></div><button id="clearHistory" class="btn btn-secondary small-btn" type="button" data-i18n="clear_history" hidden>Clear history</button></div>
+    <div id="historyList" class="history-list"></div>
+  </section>
+
+  <section id="convert" class="section">
+    <div class="section-heading"><div><h2 data-i18n="convert_title">Convert a file you own</h2><p class="muted" data-i18n="convert_sub">Upload an authorized audio/video file and save a converted copy.</p></div></div>
+    <div class="converter">
+      <label id="drop" class="drop" for="fileInput">
+        <span class="upload-icon"><svg viewBox="0 0 24 24"><path d="M12 16V4m-5 5 5-5 5 5M4 16v4h16v-4"/></svg></span>
+        <strong id="fileTitle" data-i18n="drop_title">Drop a media file here or choose one</strong>
+        <span data-i18n="drop_hint">Maximum 150 MB · up to 2 hours</span>
+        <input id="fileInput" type="file" accept="audio/*,video/*,.mp3,.mp4,.m4a,.wav,.ogg,.webm,.aac,.flac,.mov,.mkv,.avi,.m4v">
+      </label>
+      <div class="convert-controls">
+        <div class="control"><label for="format" data-i18n="output_format">Output format</label><select id="format"><option value="mp3" data-i18n="fmt_mp3">MP3 audio</option><option value="mp4" data-i18n="fmt_mp4">MP4 video</option></select></div>
+        <button id="convertBtn" class="btn btn-primary" type="button" data-i18n="convert_btn" disabled>Convert &amp; download</button>
+      </div>
+      <div id="convertStatus" class="conversion-status" role="status" aria-live="polite" data-i18n="convert_idle">Choose a file to start. Files are processed temporarily on the backend.</div>
+      <p class="privacy-note" data-i18n="convert_privacy">Only convert files you own or have permission to use. Temporary uploaded files and outputs are deleted automatically.</p>
+    </div>
+  </section>
+
+  <section id="about" class="section info-grid">
+    <article class="info-card"><div class="kicker" data-i18n="about_k">ABOUT</div><h2 data-i18n="about_title">Built for a simple flow.</h2><p data-i18n="about_text">Jaduloader is a static HTML, CSS and vanilla JavaScript frontend connected to a separately configured API backend. It has no account system and no third-party frontend scripts.</p></article>
+    <article id="faq" class="info-card"><div class="kicker" data-i18n="faq_k">FAQ</div><h2 data-i18n="faq_title">Quick answers</h2>
+      <details><summary data-i18n="q1">Why are downloads confirmed per video?</summary><p data-i18n="a1">The confirmation records that you own or have permission for the particular media. Do not download content you are not authorized to use.</p></details>
+      <details><summary data-i18n="q2">Why might a YouTube download fail?</summary><p data-i18n="a2">YouTube may block automated access or a video may be private, unavailable, or restricted. The backend does not use sign-in cookies or bypass those restrictions.</p></details>
+      <details><summary data-i18n="q3">Where is my history stored?</summary><p data-i18n="a3">Recent-download history is saved locally in this browser and is not sent to the backend.</p></details>
+    </article>
+  </section>
+  <section id="contact" class="contact-row"><div><div class="kicker" data-i18n="contact_k">CONTACT</div><strong data-i18n="contact_title">Need help with Jaduloader?</strong><p id="contactText" data-i18n="contact_default">Set a support email in config.js to display a contact link.</p></div><a id="contactLink" class="btn btn-secondary" href="#contact" data-i18n="contact_btn" hidden>Contact</a></section>
+  <section class="legal-links" aria-label="Policies"><details id="privacy"><summary data-i18n="privacy_t">Privacy Policy</summary><p data-i18n="privacy_p">Search queries and typing suggestions are sent to the configured backend, the YouTube Data API and Google’s suggestion service. Download history stays in this browser. Uploaded files and prepared outputs are temporary and subject to the backend’s retention settings.</p></details><details id="terms"><summary data-i18n="terms_t">Terms</summary><p data-i18n="terms_p">Use Jaduloader only for media you own or are authorized to process. Respect copyright and platform terms. The tool does not guarantee that every video or format will be available.</p></details></section>
+</main>
+<footer class="wrap footer"><a class="brand" href="#top"><span class="mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3v11m-4-4 4 4 4-4M5 16v4h14v-4"/></svg></span>JaduLoader</a><span data-i18n="copyright">© 2026 Jaduloader. All rights reserved.</span><nav aria-label="Footer links"><a href="#about" data-i18n="nav_about">About</a><a href="#faq" data-i18n="nav_faq">FAQ</a><a href="#contact" data-i18n="contact_btn">Contact</a><a href="#privacy" data-i18n="privacy_t">Privacy</a><a href="#terms" data-i18n="terms_t">Terms</a></nav></footer>
+
+<dialog id="rightsDialog" class="rights-dialog" aria-labelledby="rightsTitle">
+  <form method="dialog" id="rightsForm">
+    <button class="dialog-close" id="closeRights" type="button" aria-label="Close" data-i18n-attr="aria-label:close">×</button>
+    <div class="kicker" data-i18n="dlg_k">ONE VIDEO · ONE CONFIRMATION</div>
+    <h2 id="rightsTitle" data-i18n="dlg_title">Confirm download rights</h2>
+    <p id="rightsVideoTitle" class="rights-video-title"></p>
+    <p class="rights-copy" data-i18n="dlg_copy">Download this video only if you own it or have permission from the rights holder. Jaduloader will not bypass YouTube sign-in, privacy, or access restrictions.</p>
+    <label class="confirm-row"><input id="rightsCheck" type="checkbox"><span data-i18n="dlg_check">I confirm I am authorized to download this video.</span></label>
+    <div class="dialog-actions"><button id="cancelRights" class="btn btn-secondary" type="button" data-i18n="dlg_cancel">Cancel</button><button id="confirmRights" class="btn btn-primary" type="button" data-i18n="dlg_confirm" disabled>Continue to download</button></div>
+  </form>
+</dialog>
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+</body>
+</html>
