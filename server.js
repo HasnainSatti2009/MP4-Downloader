@@ -18,7 +18,7 @@ const YOUTUBE_TEMP = path.join(TEMP, 'youtube');
 const MAX_BYTES = 150 * 1024 * 1024;
 const MAX_DURATION = 2 * 60 * 60;
 const FILE_TTL_MS = 60 * 60 * 1000;
-const YOUTUBE_API_KEY = (process.env.YOUTUBE_API_KEY || '').trim();
+const YOUTUBE_API_KEY = 'AIzaSyDzNxVLJpR77W4NnFEXABLKPuydKdth53c';
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || 'http://localhost:8080,http://127.0.0.1:8080').split(',').map(s => s.trim()).filter(Boolean));
 const TOOL_STATUS = {
   ytDlp: spawnSync('yt-dlp', ['--version'], { encoding: 'utf8' }).status === 0,
