@@ -4,14 +4,19 @@ const multer = require('multer');
 const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const path = require('node:path');
+const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawn, spawnSync } = require('node:child_process');
+
+const YTDLP = path.join(__dirname, 'bin', 'yt-dlp');
+const FFMPEG = require('ffmpeg-static');
+const FFPROBE = require('ffprobe-static').path;
 
 const app = express();
 app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
-const TEMP = path.join(ROOT, 'data', 'tmp');
+const TEMP = path.join(os.tmpdir(), 'jaduloader');
 const INCOMING = path.join(TEMP, 'incoming');
 const OUTPUT = path.join(TEMP, 'converted');
 const YOUTUBE_TEMP = path.join(TEMP, 'youtube');
@@ -21,9 +26,9 @@ const FILE_TTL_MS = 60 * 60 * 1000;
 const YOUTUBE_API_KEY = 'AIzaSyDzNxVLJpR77W4NnFEXABLKPuydKdth53c';
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || 'http://localhost:8080,http://127.0.0.1:8080').split(',').map(s => s.trim()).filter(Boolean));
 const TOOL_STATUS = {
-  ytDlp: spawnSync('yt-dlp', ['--version'], { encoding: 'utf8' }).status === 0,
-  ffmpeg: spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0,
-  ffprobe: spawnSync('ffprobe', ['-version'], { encoding: 'utf8' }).status === 0
+  ytDlp: spawnSync(YTDLP, ['--version'], { encoding: 'utf8' }).status === 0,
+  ffmpeg: spawnSync(FFMPEG, ['-version'], { encoding: 'utf8' }).status === 0,
+  ffprobe: spawnSync(FFPROBE, ['-version'], { encoding: 'utf8' }).status === 0
 };
 const savedOutputs = new Map();
 const requestBuckets = new Map();
@@ -109,7 +114,7 @@ function run(program, args, timeoutMs = 8 * 60 * 1000, maxOutputChars = 12_000_0
 }
 
 async function getVideoInfo(videoId) {
-  const result = await run('yt-dlp', ['--no-playlist','--skip-download','--no-warnings','--no-call-home','--dump-single-json',`https://www.youtube.com/watch?v=${videoId}`], 90000);
+  const result = await run(YTDLP, ['--no-playlist','--skip-download','--no-warnings','--no-call-home','--dump-single-json',`https://www.youtube.com/watch?v=${videoId}`], 90000);
   let info;
   try { info = JSON.parse(result.stdout); } catch { throw new Error('Media service returned invalid video metadata.'); }
   if (info.id !== videoId) throw new Error('Media service returned a different video.');
@@ -166,7 +171,7 @@ app.post('/api/youtube-download', rateLimit(4, 60 * 1000), async (req, res) => {
     const formatArgs = format === 'mp3'
       ? ['--format','bestaudio/best','--extract-audio','--audio-format','mp3','--audio-quality',safeQuality]
       : ['--format','bv*[height<=480]+ba/b[height<=480]','--merge-output-format','mp4','--recode-video','mp4'];
-    await run('yt-dlp',['--no-playlist','--no-progress','--no-warnings','--no-call-home','--max-filesize','150M','--output',outputTemplate,...formatArgs,`https://www.youtube.com/watch?v=${videoId}`],10*60*1000);
+    await run(YTDLP,['--no-playlist','--no-progress','--ffmpeg-location',FFMPEG,'--no-warnings','--no-call-home','--max-filesize','150M','--output',outputTemplate,...formatArgs,`https://www.youtube.com/watch?v=${videoId}`],10*60*1000);
     const outputFile = (await fsp.readdir(workDir)).find(name => name.toLowerCase().endsWith(`.${format}`) && !name.endsWith('.part'));
     if (!outputFile) throw new Error('Expected output file was not created.');
     const sourcePath = path.join(workDir,outputFile); if ((await fsp.stat(sourcePath)).size > MAX_BYTES) throw new Error('Output exceeded the 150 MB limit.');
@@ -200,7 +205,7 @@ app.post('/api/convert',rateLimit(4,60*1000),uploader.single('media'),async(req,
     const format=String(req.body.format||'').toLowerCase(); if(!['mp3','mp4'].includes(format)) return res.status(400).json({error:'Choose MP3 or MP4 output.'});
     if(conversionRunning) return res.status(429).json({error:'A conversion is already running. Please retry in a moment.'});
     conversionRunning=true; acquired=true;
-    const probe=await run('ffprobe',['-v','error','-show_entries','format=duration:stream=codec_type','-of','json',source],60000); const data=JSON.parse(probe.stdout);
+    const probe=await run(FFPROBE,['-v','error','-show_entries','format=duration:stream=codec_type','-of','json',source],60000); const data=JSON.parse(probe.stdout);
     const types=(data.streams||[]).map(stream=>stream.codec_type); const duration=Number(data.format?.duration||0);
     if(duration>MAX_DURATION) return res.status(413).json({error:'Files longer than 2 hours are not supported.'});
     if(format==='mp3'&&!types.includes('audio')) return res.status(422).json({error:'This file has no audio track to export as MP3.'});
@@ -209,7 +214,7 @@ app.post('/api/convert',rateLimit(4,60*1000),uploader.single('media'),async(req,
     const args=format==='mp3'
       ? ['-nostdin','-hide_banner','-loglevel','error','-y','-i',source,'-map','0:a:0','-vn','-codec:a','libmp3lame','-q:a','2',outputPath]
       : ['-nostdin','-hide_banner','-loglevel','error','-y','-i',source,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','23','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart',outputPath];
-    await run('ffmpeg',args);
+    await run(FFMPEG,args);
     const base=path.basename(req.file.originalname,path.extname(req.file.originalname)).replace(/[^\p{L}\p{N}._-]+/gu,'_').slice(0,70)||'media'; const filename=`${base}.${format}`;
     const cleanup=setTimeout(async()=>{savedOutputs.delete(id);await fsp.unlink(outputPath).catch(()=>{});},FILE_TTL_MS);cleanup.unref();
     savedOutputs.set(id,{path:outputPath,name:filename});res.json({downloadUrl:`/api/download/${id}`,filename,expiresInMinutes:60});
@@ -273,7 +278,10 @@ app.use((error,_req,res,_next)=>{
   if(error instanceof multer.MulterError)return res.status(400).json({error:'Upload rejected. Choose one supported media file.'});
   res.status(400).json({error:error.message||'Request could not be processed.'});
 });
-app.listen(PORT,'0.0.0.0',()=>{
-  console.log(`Jaduloader listening on 0.0.0.0:${PORT}`);
-  console.log(`Search key configured: ${Boolean(YOUTUBE_API_KEY)}; media tools: yt-dlp=${TOOL_STATUS.ytDlp}, ffmpeg=${TOOL_STATUS.ffmpeg}, ffprobe=${TOOL_STATUS.ffprobe}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(PORT,'0.0.0.0',()=>{
+    console.log(`Jaduloader listening on 0.0.0.0:${PORT}`);
+    console.log(`Search key configured: ${Boolean(YOUTUBE_API_KEY)}; media tools: yt-dlp=${TOOL_STATUS.ytDlp}, ffmpeg=${TOOL_STATUS.ffmpeg}, ffprobe=${TOOL_STATUS.ffprobe}`);
+  });
+}
+module.exports = app;
