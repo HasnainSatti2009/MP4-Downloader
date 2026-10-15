@@ -11,20 +11,44 @@ const app = express();
 app.set('trust proxy', 1);
 const PORT = Number(process.env.PORT || 3000);
 const ROOT = __dirname;
-const TEMP = path.join(ROOT, 'data', 'tmp');
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const TEMP = IS_VERCEL ? '/tmp/jaduloader' : path.join(ROOT, 'data', 'tmp');
 const INCOMING = path.join(TEMP, 'incoming');
 const OUTPUT = path.join(TEMP, 'converted');
 const YOUTUBE_TEMP = path.join(TEMP, 'youtube');
 const MAX_BYTES = 150 * 1024 * 1024;
 const MAX_DURATION = 2 * 60 * 60;
 const FILE_TTL_MS = 60 * 60 * 1000;
-const YOUTUBE_API_KEY = 'AIzaSyDzNxVLJpR77W4NnFEXABLKPuydKdth53c';
+const YOUTUBE_API_KEY = process.env.YOUTUBE_API_KEY || '';
 const ALLOWED_ORIGINS = new Set((process.env.ALLOWED_ORIGINS || 'http://localhost:8080,http://127.0.0.1:8080').split(',').map(s => s.trim()).filter(Boolean));
+
+/* ---- Locate yt-dlp / ffmpeg / ffprobe (bundled binaries first, then PATH) ---- */
+function resolveYtDlp() {
+  const bundled = path.join(ROOT, 'bin', 'yt-dlp');
+  if (process.env.YTDLP_PATH) return process.env.YTDLP_PATH;
+  if (fs.existsSync(bundled)) {
+    if (!IS_VERCEL) return bundled;
+    // Vercel's deployment folder is read-only; copy to /tmp so we can guarantee the exec bit.
+    const target = '/tmp/yt-dlp';
+    try { if (!fs.existsSync(target)) { fs.copyFileSync(bundled, target); } fs.chmodSync(target, 0o755); return target; }
+    catch { return bundled; }
+  }
+  return 'yt-dlp';
+}
+function resolveFfmpeg() {
+  if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
+  try { const p = require('@ffmpeg-installer/ffmpeg').path; if (p && fs.existsSync(p)) { if (IS_VERCEL) { const t = '/tmp/ffmpeg'; if (!fs.existsSync(t)) fs.copyFileSync(p, t); fs.chmodSync(t, 0o755); return t; } return p; } } catch { /* not installed */ }
+  return 'ffmpeg';
+}
+const YTDLP_BIN = resolveYtDlp();
+const FFMPEG_BIN = resolveFfmpeg();
+const FFPROBE_BIN = process.env.FFPROBE_PATH || 'ffprobe'; // optional; only needed for /api/convert (file upload converter)
 const TOOL_STATUS = {
-  ytDlp: spawnSync('yt-dlp', ['--version'], { encoding: 'utf8' }).status === 0,
-  ffmpeg: spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0,
-  ffprobe: spawnSync('ffprobe', ['-version'], { encoding: 'utf8' }).status === 0
+  ytDlp: spawnSync(YTDLP_BIN, ['--version'], { encoding: 'utf8' }).status === 0,
+  ffmpeg: spawnSync(FFMPEG_BIN, ['-version'], { encoding: 'utf8' }).status === 0,
+  ffprobe: spawnSync(FFPROBE_BIN, ['-version'], { encoding: 'utf8' }).status === 0
 };
+const YTDLP_COMMON = ['--cache-dir', IS_VERCEL ? '/tmp/yt-dlp-cache' : path.join(TEMP, 'yt-dlp-cache'), '--ffmpeg-location', FFMPEG_BIN];
 const savedOutputs = new Map();
 const requestBuckets = new Map();
 let conversionRunning = false;
@@ -109,7 +133,7 @@ function run(program, args, timeoutMs = 8 * 60 * 1000, maxOutputChars = 12_000_0
 }
 
 async function getVideoInfo(videoId) {
-  const result = await run('yt-dlp', ['--no-playlist','--skip-download','--no-warnings','--no-call-home','--dump-single-json',`https://www.youtube.com/watch?v=${videoId}`], 90000);
+  const result = await run(YTDLP_BIN, [...YTDLP_COMMON,'--no-playlist','--skip-download','--no-warnings','--no-call-home','--dump-single-json',`https://www.youtube.com/watch?v=${videoId}`], 90000);
   let info;
   try { info = JSON.parse(result.stdout); } catch { throw new Error('Media service returned invalid video metadata.'); }
   if (info.id !== videoId) throw new Error('Media service returned a different video.');
@@ -166,7 +190,7 @@ app.post('/api/youtube-download', rateLimit(4, 60 * 1000), async (req, res) => {
     const formatArgs = format === 'mp3'
       ? ['--format','bestaudio/best','--extract-audio','--audio-format','mp3','--audio-quality',safeQuality]
       : ['--format','bv*[height<=480]+ba/b[height<=480]','--merge-output-format','mp4','--recode-video','mp4'];
-    await run('yt-dlp',['--no-playlist','--no-progress','--no-warnings','--no-call-home','--max-filesize','150M','--output',outputTemplate,...formatArgs,`https://www.youtube.com/watch?v=${videoId}`],10*60*1000);
+    await run(YTDLP_BIN,[...YTDLP_COMMON,'--no-playlist','--no-progress','--no-warnings','--no-call-home','--max-filesize','150M','--output',outputTemplate,...formatArgs,`https://www.youtube.com/watch?v=${videoId}`],IS_VERCEL?55*1000:10*60*1000);
     const outputFile = (await fsp.readdir(workDir)).find(name => name.toLowerCase().endsWith(`.${format}`) && !name.endsWith('.part'));
     if (!outputFile) throw new Error('Expected output file was not created.');
     const sourcePath = path.join(workDir,outputFile); if ((await fsp.stat(sourcePath)).size > MAX_BYTES) throw new Error('Output exceeded the 150 MB limit.');
@@ -200,7 +224,7 @@ app.post('/api/convert',rateLimit(4,60*1000),uploader.single('media'),async(req,
     const format=String(req.body.format||'').toLowerCase(); if(!['mp3','mp4'].includes(format)) return res.status(400).json({error:'Choose MP3 or MP4 output.'});
     if(conversionRunning) return res.status(429).json({error:'A conversion is already running. Please retry in a moment.'});
     conversionRunning=true; acquired=true;
-    const probe=await run('ffprobe',['-v','error','-show_entries','format=duration:stream=codec_type','-of','json',source],60000); const data=JSON.parse(probe.stdout);
+    const probe=await run(FFPROBE_BIN,['-v','error','-show_entries','format=duration:stream=codec_type','-of','json',source],60000); const data=JSON.parse(probe.stdout);
     const types=(data.streams||[]).map(stream=>stream.codec_type); const duration=Number(data.format?.duration||0);
     if(duration>MAX_DURATION) return res.status(413).json({error:'Files longer than 2 hours are not supported.'});
     if(format==='mp3'&&!types.includes('audio')) return res.status(422).json({error:'This file has no audio track to export as MP3.'});
@@ -209,7 +233,7 @@ app.post('/api/convert',rateLimit(4,60*1000),uploader.single('media'),async(req,
     const args=format==='mp3'
       ? ['-nostdin','-hide_banner','-loglevel','error','-y','-i',source,'-map','0:a:0','-vn','-codec:a','libmp3lame','-q:a','2',outputPath]
       : ['-nostdin','-hide_banner','-loglevel','error','-y','-i',source,'-map','0:v:0','-map','0:a:0?','-c:v','libx264','-preset','veryfast','-crf','23','-pix_fmt','yuv420p','-c:a','aac','-b:a','128k','-movflags','+faststart',outputPath];
-    await run('ffmpeg',args);
+    await run(FFMPEG_BIN,args);
     const base=path.basename(req.file.originalname,path.extname(req.file.originalname)).replace(/[^\p{L}\p{N}._-]+/gu,'_').slice(0,70)||'media'; const filename=`${base}.${format}`;
     const cleanup=setTimeout(async()=>{savedOutputs.delete(id);await fsp.unlink(outputPath).catch(()=>{});},FILE_TTL_MS);cleanup.unref();
     savedOutputs.set(id,{path:outputPath,name:filename});res.json({downloadUrl:`/api/download/${id}`,filename,expiresInMinutes:60});
@@ -273,7 +297,8 @@ app.use((error,_req,res,_next)=>{
   if(error instanceof multer.MulterError)return res.status(400).json({error:'Upload rejected. Choose one supported media file.'});
   res.status(400).json({error:error.message||'Request could not be processed.'});
 });
-app.listen(PORT,'0.0.0.0',()=>{
-  console.log(`Jaduloader listening on 0.0.0.0:${PORT}`);
-  console.log(`Search key configured: ${Boolean(YOUTUBE_API_KEY)}; media tools: yt-dlp=${TOOL_STATUS.ytDlp}, ffmpeg=${TOOL_STATUS.ffmpeg}, ffprobe=${TOOL_STATUS.ffprobe}`);
-});
+console.log(`Search key configured: ${Boolean(YOUTUBE_API_KEY)}; media tools: yt-dlp=${TOOL_STATUS.ytDlp}, ffmpeg=${TOOL_STATUS.ffmpeg}, ffprobe=${TOOL_STATUS.ffprobe}`);
+if (!IS_VERCEL) {
+  app.listen(PORT,'0.0.0.0',()=>console.log(`Jaduloader listening on 0.0.0.0:${PORT}`));
+}
+module.exports = app; // Vercel uses the exported Express app

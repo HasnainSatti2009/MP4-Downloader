@@ -1,0 +1,10 @@
+{
+  "installCommand": "npm install && mkdir -p bin && curl -fL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o bin/yt-dlp && chmod +x bin/yt-dlp",
+  "functions": {
+    "server.js": {
+      "maxDuration": 60,
+      "includeFiles": "{bin/**,index.html,styles.css,config.js,app.js,i18n.js,node_modules/@ffmpeg-installer/**}"
+    }
+  },
+  "rewrites": [{ "source": "/(.*)", "destination": "/server.js" }]
+}
