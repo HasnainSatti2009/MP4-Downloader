@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "installCommand": "npm install && mkdir -p bin && curl -fL https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_linux -o bin/yt-dlp && chmod +x bin/yt-dlp",
   "functions": {
     "server.js": {
@@ -7,4 +8,11 @@
     }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/server.js" }]
+=======
+  "functions": {
+    "server.js": {
+      "includeFiles": "{bin/**,node_modules/ffmpeg-static/**,node_modules/ffprobe-static/**,index.html,styles.css,config.js,app.js,i18n.js}"
+    }
+  }
+>>>>>>> c76920e2fc535267ca4b47865bdf5cfd2a6c044b
 }
